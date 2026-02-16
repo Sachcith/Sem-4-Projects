@@ -1,27 +1,45 @@
 import os, glob, gc, time
 import numpy as np
 import librosa
+try:
+    import torch
+    TORCH_AVAILABLE = True
+    USE_CUDA = torch.cuda.is_available()
+    DEVICE = torch.device('cuda' if USE_CUDA else 'cpu')
+except Exception:
+    torch = None
+    TORCH_AVAILABLE = False
+    USE_CUDA = False
+    DEVICE = None
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.signal import butter, filtfilt, welch
-import pywt  # For Discrete Wavelet Transform
+from scipy.ndimage import zoom
+from sklearn.model_selection import train_test_split as sklearn_split
+import pywt 
+try:
+    from pytorch_wavelets import DWTForward
+    PWAVELETS_AVAILABLE = True
+except Exception:
+    DWTForward = None
+    PWAVELETS_AVAILABLE = False
 
 # Dataset Configuration
 TARGET_SR = 16000  # Target Sampling Rate
 LOW_CUT = 100  # Low Cut Frequency for Bandpass Filter
 HIGH_CUT = 1000     # High Cut Frequency for Bandpass Filter
-SEGMENT_DURATION = 3.0  
-SEGMENT_OVERLAP = 0.25  #(25%)
+SEGMENT_DURATION = 2.0  
+SEGMENT_OVERLAP = 0.5 
 
-STFT_N_FFT = 512    #  number of FFT components
-STFT_HOP_LENGTH = 64 # number of samples between successive frames
-STFT_WIN_LENGTH = 256 # number of samples in each window
+STFT_N_FFT = 1024    #  number of FFT components
+STFT_HOP_LENGTH = 256 # number of samples between successive frames
+STFT_WIN_LENGTH = 1024 # number of samples in each window
 
 # DWT Configuration
-COMPUTE_DWT_SCALOGRAM = False  
-COMPUTE_DWT_ENERGY = False     
+COMPUTE_DWT_SCALOGRAM = True    
+COMPUTE_DWT_ENERGY = True    
 
-DATASET_PATH = "../dataset"
+DATASET_PATH = "../dataset"  
 OUTPUT_FOLDER = "../dataset_processed"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -32,7 +50,12 @@ def get_class_map(root_path):
         return {}
     classes = [d for d in items if os.path.isdir(os.path.join(root_path, d))]
     classes.sort()
-    return {class_name: i for i, class_name in enumerate(classes)}
+    class_map = {class_name: i for i, class_name in enumerate(classes)}
+    print(f"\nClass Mapping")
+    for name, idx in class_map.items():
+        print(f"  {idx}: {name}")
+    print(f"  Total: {len(class_map)} classes")
+    return class_map
 
 class_map = get_class_map(DATASET_PATH)
 inv_class_map = {v: k for k, v in class_map.items()}
@@ -80,21 +103,47 @@ class AudioCleaner:
 
 class FeatureExtractor:
     SPEC_SHAPE = (128, 100)
-    
-    def __init__(self, sr=16000, n_fft=512, hop_length=64, win_length=256):
+
+    def __init__(self, sr=16000, n_fft=512, hop_length=64, win_length=256, device=None):
         self.sr = sr
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.win_length = win_length
+        if device is not None:
+            self.device = device
+        else:
+            self.device = DEVICE if TORCH_AVAILABLE else None
 
     def compute_stft_spectrogram(self, audio_segment):
-        stft_result = librosa.stft(audio_segment, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.win_length)
-        magnitude = np.abs(stft_result)
+        if TORCH_AVAILABLE and self.device is not None:
+            x = torch.from_numpy(audio_segment).float().to(self.device)
+            if self.win_length is not None and self.win_length > 0:
+                win = torch.hann_window(self.win_length, device=self.device)
+            else:
+                win = None
+            try:
+                stft_result = torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.win_length, window=win, return_complex=True)
+                magnitude = stft_result.abs().cpu().numpy()
+            except Exception:
+                stft_result = librosa.stft(audio_segment, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.win_length)
+                magnitude = np.abs(stft_result)
+        else:
+            stft_result = librosa.stft(audio_segment, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.win_length)
+            magnitude = np.abs(stft_result)
+
         log_spectrogram = librosa.amplitude_to_db(magnitude + 1e-10, ref=np.max)
-        reshaped_spec = np.zeros(self.SPEC_SHAPE, dtype=np.float32)
-        nf = min(log_spectrogram.shape[0], self.SPEC_SHAPE[0])
-        nt = min(log_spectrogram.shape[1], self.SPEC_SHAPE[1])
-        reshaped_spec[:nf, :nt] = log_spectrogram[:nf, :nt]
+        target_shape = self.SPEC_SHAPE
+        freq_factor = target_shape[0] / log_spectrogram.shape[0]
+        time_factor = target_shape[1] / log_spectrogram.shape[1]
+        reshaped_spec = zoom(log_spectrogram, (freq_factor, time_factor), order=1)
+        reshaped_spec = reshaped_spec[:target_shape[0], :target_shape[1]]
+        if reshaped_spec.shape != target_shape:
+            padded = np.zeros(target_shape, dtype=np.float32)
+            padded[:reshaped_spec.shape[0], :reshaped_spec.shape[1]] = reshaped_spec
+            reshaped_spec = padded
+        spec_mean = np.mean(reshaped_spec)
+        spec_std = np.std(reshaped_spec) + 1e-8
+        reshaped_spec = (reshaped_spec - spec_mean) / spec_std
         
         return reshaped_spec.astype(np.float16)
 
@@ -118,16 +167,48 @@ class FeatureExtractor:
         return np.array([centroid_mean, ber, zcr_mean], dtype=np.float16)
     
     def compute_dwt_scalogram(self, audio_segment, wavelet='db4', level=6, shape=(128, 100)):
-        coeffs = pywt.wavedec(audio_segment, wavelet, level=level)
-        scalogram_list = []
-        for coeff in coeffs:
-            scalogram_list.append(coeff)
-        max_len = max(len(c) for c in scalogram_list)
-        scalogram_raw = np.zeros((len(scalogram_list), max_len), dtype=np.float32)
-        for i, coeff in enumerate(scalogram_list):
-            scalogram_raw[i, :len(coeff)] = coeff[:]
-        magnitude = np.abs(scalogram_raw)
-        scalogram_db = librosa.amplitude_to_db(magnitude + 1e-10, ref=np.max)
+        if TORCH_AVAILABLE and PWAVELETS_AVAILABLE and self.device is not None:
+            x = torch.from_numpy(audio_segment).float().unsqueeze(0).unsqueeze(0).to(self.device)
+            try:
+                dwt = DWTForward(J=level, wave=wavelet).to(self.device)
+                Yl, Yh = dwt(x)
+                scalogram_list = []
+                scalogram_list.append(Yl.squeeze().cpu().numpy())
+                for yh in Yh:
+                    arr = yh.squeeze().cpu().numpy()
+                    if arr.ndim > 1:
+                        arr = arr.reshape(arr.shape[0], -1)
+                        arr = arr.mean(axis=0)
+                    scalogram_list.append(arr)
+                max_len = max(len(c) for c in scalogram_list)
+                scalogram_raw = np.zeros((len(scalogram_list), max_len), dtype=np.float32)
+                for i, coeff in enumerate(scalogram_list):
+                    scalogram_raw[i, :len(coeff)] = coeff[:]
+                magnitude = np.abs(scalogram_raw)
+                scalogram_db = librosa.amplitude_to_db(magnitude + 1e-10, ref=np.max)
+            except Exception:
+                # fallback to pywt
+                coeffs = pywt.wavedec(audio_segment, wavelet, level=level)
+                scalogram_list = []
+                for coeff in coeffs:
+                    scalogram_list.append(coeff)
+                max_len = max(len(c) for c in scalogram_list)
+                scalogram_raw = np.zeros((len(scalogram_list), max_len), dtype=np.float32)
+                for i, coeff in enumerate(scalogram_list):
+                    scalogram_raw[i, :len(coeff)] = coeff[:]
+                magnitude = np.abs(scalogram_raw)
+                scalogram_db = librosa.amplitude_to_db(magnitude + 1e-10, ref=np.max)
+        else:
+            coeffs = pywt.wavedec(audio_segment, wavelet, level=level)
+            scalogram_list = []
+            for coeff in coeffs:
+                scalogram_list.append(coeff)
+            max_len = max(len(c) for c in scalogram_list)
+            scalogram_raw = np.zeros((len(scalogram_list), max_len), dtype=np.float32)
+            for i, coeff in enumerate(scalogram_list):
+                scalogram_raw[i, :len(coeff)] = coeff[:]
+            magnitude = np.abs(scalogram_raw)
+            scalogram_db = librosa.amplitude_to_db(magnitude + 1e-10, ref=np.max)
         if scalogram_db.shape != shape:
             from scipy.ndimage import zoom
             zoom_factor = (shape[0] / scalogram_db.shape[0], shape[1] / scalogram_db.shape[1])
@@ -182,7 +263,6 @@ def process_single_file(file_path):
                 spec = extractor.compute_stft_spectrogram(normalized)
                 feats = extractor.compute_scalar_features(normalized)
                 
-                # Conditionally compute DWT features based on config
                 if COMPUTE_DWT_SCALOGRAM:
                     dwt_scalogram = extractor.compute_dwt_scalogram(normalized, wavelet='db4', level=6)
                 else:
@@ -202,7 +282,32 @@ def process_single_file(file_path):
 
 def preprocess_and_save_incrementally(dataset_path, output_path, batch_size=200):
     os.makedirs(output_path, exist_ok=True)
+    old_patterns = [
+        'data_batch_*.npz',
+        'X_spec_batch_*.npy', 
+        'X_dwt_batch_*.npy',
+        'X_spec_range_batch_*.npy',
+        'X_train_*.npy',
+        'y_train.npy',
+        '*_temp.npy',
+        '*.tmp',
+        '*.tmp.npy'
+    ]
+    removed_count = 0
+    for pattern in old_patterns:
+        for f in glob.glob(os.path.join(output_path, pattern)):
+            try:
+                os.remove(f)
+                removed_count += 1
+            except Exception as e:
+                print(f"  Warning: Could not remove {f}: {e}")
+    print(f"  Removed {removed_count} old files.")
+    
     cmap = get_class_map(dataset_path)
+    num_classes = len(cmap)
+    
+    if num_classes == 0:
+        return
     
     all_files, all_labels = [], []
     for cname, cid in cmap.items():
@@ -210,9 +315,9 @@ def preprocess_and_save_incrementally(dataset_path, output_path, batch_size=200)
                        glob.glob(os.path.join(dataset_path, cname, '**', '*.mp3'), recursive=True))
         all_files.extend(files)
         all_labels.extend([cid]*len(files))
-    print(f"Found {len(all_files)} audio files across {len(cmap)} classes")
+        assert all(0 <= lab < num_classes for lab in all_labels), f"Invalid label for class {cname}!"
     
-    # Print file distribution per class
+    print(f"Found {len(all_files)} audio files across {len(cmap)} classes")
     for cname in cmap.keys():
         count = sum(1 for f, l in zip(all_files, all_labels) if l == cmap[cname])
         print(f"  {cname}: {count} files")
@@ -258,9 +363,6 @@ def preprocess_and_save_incrementally(dataset_path, output_path, batch_size=200)
             if Xdwt_buf:
                 np.save(os.path.join(output_path, f"X_dwt_batch_{part}.npy"), np.array(Xdwt_buf, dtype=np.float16))
             
-            rng = np.array([np.min(Xs_buf), np.max(Xs_buf)], dtype=np.float32) if len(Xs_buf)>0 else np.array([0,0], dtype=np.float32)
-            np.save(os.path.join(output_path, f"X_spec_range_batch_{part}.npy"), rng)
-            
             saved_count = len(Xs_buf)
             features_saved = "STFT" + (" + DWT scalogram" if Xdwt_buf else "") + (" + DWT energy" if Xdwt_feat_buf else "")
             Xs_buf, Xf_buf, y_buf = [], [], []
@@ -278,52 +380,138 @@ def consolidate_dataset(output_path):
     if not data_files:
         print('No batch files to consolidate.')
         return
-        
-    Xf, Xdwt_f, Ys, Xs, Xdwt = [], [], [], [], []
-    for f in data_files:
+    total_samples = 0
+    has_dwt_feat = False
+    has_dwt_scalogram = False
+    spec_shape = None
+    dwt_shape = None
+    
+    for idx, f in enumerate(data_files):
         d = np.load(f)
-        Xf.append(d['feat'])
+        total_samples += len(d['labels'])
         if 'dwt_feat' in d:
-            Xdwt_f.append(d['dwt_feat'])  # Load DWT energy features
-        Ys.append(d['labels'])
+            has_dwt_feat = True
         
         suf = os.path.basename(f).replace('data_', '').replace('.npz', '')
         sf = os.path.join(output_path, f"X_spec_{suf}.npy")
         if os.path.exists(sf):
-            Xs.append(np.load(sf))
+            tmp = np.load(sf)
+            if spec_shape is None:
+                spec_shape = tmp.shape[1:]
+            if has_dwt_scalogram is False:
+                has_dwt_scalogram = True
         
         dwt_f = os.path.join(output_path, f"X_dwt_{suf}.npy")
         if os.path.exists(dwt_f):
-            Xdwt.append(np.load(dwt_f))  # Load DWT scalograms
+            tmp = np.load(dwt_f)
+            if dwt_shape is None:
+                dwt_shape = tmp.shape[1:]
+        
+        if (idx + 1) % 50 == 0:
+            print(f"  Scanned {idx+1}/{len(data_files)} batches...")
+    
+    print(f"Total samples: {total_samples}, has_dwt_feat: {has_dwt_feat}, has_dwt_scalogram: {has_dwt_scalogram}")
+    X_feat_path = os.path.join(output_path, 'X_train_feat.npy')
+    y_train_path = os.path.join(output_path, 'y_train.npy')
+    X_spec_path = os.path.join(output_path, 'X_train_spec.npy')
+    X_dwt_feat_path = os.path.join(output_path, 'X_train_dwt_feat.npy')
+    X_dwt_path = os.path.join(output_path, 'X_train_dwt.npy')
+    X_feat_out = np.memmap(X_feat_path, dtype=np.float16, mode='w+', shape=(total_samples, 3))
+    y_train_out = np.memmap(y_train_path, dtype=np.int8, mode='w+', shape=(total_samples,))
+    if has_dwt_scalogram and spec_shape is not None:
+        X_spec_out = np.memmap(X_spec_path, dtype=np.float16, mode='w+', shape=(total_samples, *spec_shape))
+    else:
+        X_spec_out = None
+    if has_dwt_feat:
+        for f in data_files:
+            d = np.load(f)
+            if 'dwt_feat' in d:
+                dwt_feat_size = d['dwt_feat'].shape[1]
+                break
+        X_dwt_feat_out = np.memmap(X_dwt_feat_path, dtype=np.float16, mode='w+', shape=(total_samples, dwt_feat_size))
+    else:
+        X_dwt_feat_out = None
+    if dwt_shape is not None:
+        X_dwt_out = np.memmap(X_dwt_path, dtype=np.float16, mode='w+', shape=(total_samples, *dwt_shape))
+    else:
+        X_dwt_out = None
+    sample_idx = 0
+    for batch_idx, f in enumerate(data_files):
+        d = np.load(f)
+        batch_feat = d['feat']
+        batch_labels = d['labels']
+        batch_size = len(batch_labels)
+        X_feat_out[sample_idx:sample_idx+batch_size] = batch_feat
+        y_train_out[sample_idx:sample_idx+batch_size] = batch_labels
+        if X_dwt_feat_out is not None and 'dwt_feat' in d:
+            X_dwt_feat_out[sample_idx:sample_idx+batch_size] = d['dwt_feat']
+        suf = os.path.basename(f).replace('data_', '').replace('.npz', '')
+        sf = os.path.join(output_path, f"X_spec_{suf}.npy")
+        if os.path.exists(sf) and X_spec_out is not None:
+            batch_spec = np.load(sf)
+            X_spec_out[sample_idx:sample_idx+batch_size] = batch_spec
+        dwt_f = os.path.join(output_path, f"X_dwt_{suf}.npy")
+        if os.path.exists(dwt_f) and X_dwt_out is not None:
+            batch_dwt = np.load(dwt_f)
+            X_dwt_out[sample_idx:sample_idx+batch_size] = batch_dwt
+        sample_idx += batch_size
+        if (batch_idx + 1) % 20 == 0:
+            print(f"  Consolidated {batch_idx+1}/{len(data_files)} batches ({sample_idx}/{total_samples} samples)...")
+    X_feat_out.flush()
+    y_train_out.flush()
+    if X_spec_out is not None:
+        X_spec_out.flush()
+    if X_dwt_feat_out is not None:
+        X_dwt_feat_out.flush()
+    if X_dwt_out is not None:
+        X_dwt_out.flush()
 
-    np.save(os.path.join(output_path, 'X_train_feat.npy'), np.concatenate(Xf,0))
-    if Xdwt_f:
-        np.save(os.path.join(output_path, 'X_train_dwt_feat.npy'), np.concatenate(Xdwt_f,0))
-    np.save(os.path.join(output_path, 'y_train.npy'), np.concatenate(Ys,0))
-    if Xs:
-        np.save(os.path.join(output_path, 'X_train_spec.npy'), np.concatenate(Xs,0))
-    if Xdwt:
-        np.save(os.path.join(output_path, 'X_train_dwt.npy'), np.concatenate(Xdwt,0))
-
+    def convert_memmap_to_npy(memmap_array, file_path):
+        if memmap_array is not None:
+            data = np.array(memmap_array)
+            del memmap_array  
+            temp_path = file_path.replace('.npy', '_temp.npy')
+            np.save(temp_path, data)
+            del data
+            os.replace(temp_path, file_path)
+            gc.collect()
+    
+    convert_memmap_to_npy(X_feat_out, X_feat_path)
+    convert_memmap_to_npy(y_train_out, y_train_path)
+    convert_memmap_to_npy(X_spec_out, X_spec_path)
+    convert_memmap_to_npy(X_dwt_feat_out, X_dwt_feat_path)
+    convert_memmap_to_npy(X_dwt_out, X_dwt_path)
     for f in data_files:
         os.remove(f)
     for npy_file in glob.glob(os.path.join(output_path, 'X_spec_batch_*.npy')):
         os.remove(npy_file)
     for npy_file in glob.glob(os.path.join(output_path, 'X_dwt_batch_*.npy')):
-        os.remove(npy_file)  # Clean up DWT batch files
+        os.remove(npy_file)
     for rng_file in glob.glob(os.path.join(output_path, 'X_spec_range_batch_*.npy')):
         os.remove(rng_file)
-    print("Consolidation complete.")
+    y_final = np.load(y_train_path)
+    unique_labels = np.unique(y_final)
+    print(f"  Total samples: {len(y_final)}")
+    print(f"  Unique labels: {sorted(unique_labels)}")
+    print(f"  Label range: {y_final.min()} to {y_final.max()}")
+    expected_range = set(range(6)) 
+    actual_labels = set(unique_labels)
+    if actual_labels <= expected_range:
+        print("Correct")
+    print("\n  Class distribution:")
+    for lab in sorted(unique_labels):
+        count = np.sum(y_final == lab)
+        pct = 100 * count / len(y_final)
+        print(f"    Class {lab}: {count:7d} samples ({pct:5.2f}%)")
 
-'''
 preprocess_and_save_incrementally(DATASET_PATH, OUTPUT_FOLDER, batch_size=200)
 consolidate_dataset(OUTPUT_FOLDER)
-'''
+
 
 
 '''
 Visualisation of Processed Data
-'''
+
 
 X_spec_path = os.path.join(OUTPUT_FOLDER, "X_train_spec.npy")
 X_feat_path = os.path.join(OUTPUT_FOLDER, "X_train_feat.npy")
@@ -681,5 +869,5 @@ if X_feat is not None:
     plt.subplots_adjust(hspace=0.4)
     plt.savefig('Spectral_feature_boxplots.png', dpi=300)
 
-
+'''
 
