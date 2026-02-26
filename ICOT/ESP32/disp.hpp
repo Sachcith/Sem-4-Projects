@@ -6,8 +6,10 @@
 
 template<class T, std::size_t R, std::size_t C>
 void disp(Matrix<T,R,C> x){
-    for(int i=0;i<R;i++){
-        for(int j=0;j<C;j++){
+    std::size_t tempR = x.rows();
+    std::size_t tempC = x.cols();
+    for(int i=0;i<tempR;i++){
+        for(int j=0;j<tempC;j++){
             std::cout<<x[i][j]<<" ";
         }
         std::cout<<endl;
