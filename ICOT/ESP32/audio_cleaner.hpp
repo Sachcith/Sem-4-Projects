@@ -4,9 +4,6 @@
 #include "Matrix.hpp"
 #include "feature.hpp"
 
-
-
-
 // Pre Emphasis Function
 // To hilight sudden changes in the signal
 template <class T,std::size_t N>

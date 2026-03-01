@@ -135,4 +135,48 @@ T dwt<T,TOTAL_SAMPLES,max_level>::cycle(T data){
     return return_data;
 }
 
+// Zoom DWT Class
+template <class T, std::size_t N, std::size_t Input_row, std::size_t Input_col, std::size_t Output_row, std::size_t Output_col>
+class zoom_dwt{
+    public:
+        Matrix<T,Output_row,Output_col> output;
+
+
+        // Padding Simulator Function
+        T get_coeff(Matrix<T,N,1> &input, std::size_t row, std::size_t col){
+
+            // Padding thingys for dwt scalogram since each level has a different size.
+            static constexpr std::size_t row_offsets[7] = {0, 257, 764, 1770, 3776, 7782, 15787};
+            static constexpr std::size_t row_lengths[7] = {256, 763, 1769, 3775, 7781, 15786, 32000}; // Recheck this row_lengths again.
+
+            if(col >= row_lengths[row]) return static_cast<T>(0.0);
+            return input[row_offsets[row] + col];
+        }
+        // Zoom Function
+        Matrix<T,Output_row,Output_col> zoom(Matrix<T,N,1> &input){
+            //input.reshape(Input_row,Input_col);
+            T row_scale = static_cast<T>(Input_row-1) / (Output_row-1);
+            T col_scale = static_cast<T>(Input_col-1) / (Output_col-1);
+            for(std::size_t i=0;i<Output_row;i++){
+                for(std::size_t j=0;j<Output_col;j++){
+                    std::size_t r0 = static_cast<std::size_t>(i*row_scale);
+                    T wr = r0 - std::floor(r0);
+                    r0 = std::floor(r0); // Floor Row
+                    std::size_t r1 = r0 + 1;// Ceil Row
+                    if(r1 >= Input_row) r1 = Input_row-1;
+
+                    std::size_t c0 = static_cast<std::size_t>(j*col_scale);
+                    T wc = c0 - std::floor(c0);
+                    c0 = std::floor(c0);// Floor Col
+                    std::size_t c1 = c0 + 1;// Ceil Col
+                    if(c1 >= Input_col) c1 = Input_col-1;
+
+                    output[i][j] = (1-wr)*(1-wc)*get_coeff(input,r0,c0) + (1-wr)*wc*get_coeff(input,r0,c1) + wr*(1-wc)*get_coeff(input,r1,c0) + wr*wc*get_coeff(input,r1,c1);
+
+                }
+            }
+            input.reset_shape();
+            return output;
+        }
+};
 #endif

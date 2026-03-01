@@ -130,25 +130,29 @@ void log_thingy(Matrix<T,N,1> &input){
 }
 
 // Centroid Calculator thingy
-template <class T, std::size_t N>
-T centroid_thingy(Matrix<T,N,1> &input,std::size_t sample_rate, std::size_t NUM_FRAMES, std::size_t NUM_BINS){
-    input.reshape(NUM_FRAMES,NUM_BINS);
-    Matrix<T,NUM_FRAMES,1> output;
-    std::size_t FFT_SIZE = (NUM_BINS-1)*2;
-    for(std::size_t i=0;i<NUM_FRAMES;i++){
-        T mag_total = 0;
-        for(std::size_t j=0;j<NUM_BINS;j++){
-            T fi = (sample_rate*j)/(FFT_SIZE);
-            output[i][0] = output[i][0] + input[i][j]*fi;
-            mag_total = mag_total + input[i][j];
-        }
-        if(mag_total==0) output[i][0] = 0;
-        else output[i][0] = output[i][0]/mag_total;
-    }
+template <class T, std::size_t N, std::size_t NUM_FRAMES, std::size_t NUM_BINS>
+class centroid_thingy{
+    private:
+        Matrix<T,NUM_FRAMES,1> output;
+    public:
+        T compute(Matrix<T,N,1> &input,std::size_t sample_rate){
+            input.reshape(NUM_FRAMES,NUM_BINS);
+            std::size_t FFT_SIZE = (NUM_BINS-1)*2;
+            for(std::size_t i=0;i<NUM_FRAMES;i++){
+                T mag_total = 0;
+                for(std::size_t j=0;j<NUM_BINS;j++){
+                    T fi = (sample_rate*j)/(FFT_SIZE);
+                    output[i][0] = output[i][0] + input[i][j]*fi;
+                    mag_total = mag_total + input[i][j];
+                }
+                if(mag_total==0) output[i][0] = 0;
+                else output[i][0] = output[i][0]/mag_total;
+            }
 
-    input.reset_shape();
-    return mean(output);
-}
+            input.reset_shape();
+            return mean(output);
+        }
+};
 
 // Band Energy Ratio (BER)
 // Band 1 = 150Hz to 300Hz
@@ -157,24 +161,60 @@ T centroid_thingy(Matrix<T,N,1> &input,std::size_t sample_rate, std::size_t NUM_
 // Freq thingy = 16000/1024 = 15.625
 // Band 1 = index 10 = Freq thingy * 10 to index 22 = Freq thingy * 22
 // Band 2 = index 26 = Freq thingy * 26 to index 32 = Freq thingy * 32
-template <class T, std::size_t N>
-T BER(Matrix<T,N,1> &input, std::size_t sample_rate, std::size_t NUM_FRAMES, std::size_t NUM_BINS){
-    input.reshape(NUM_FRAMES,NUM_BINS);
-    Matrix<T,NUM_FRAMES,1> ber;
-    for(std::size_t i=0;i<NUM_FRAMES;i++){
-        T band_1 = 0;
-        for(std::size_t j=10;j<=22;j++){
-            band_1 = band_1 + input[i][j]*input[i][j];
+template <class T, std::size_t N, std::size_t NUM_FRAMES, std::size_t NUM_BINS>
+class BER{
+    private:
+        Matrix<T,NUM_FRAMES,1> ber;
+    public:
+        T compute(Matrix<T,N,1> &input, std::size_t sample_rate){
+            input.reshape(NUM_FRAMES,NUM_BINS);
+            for(std::size_t i=0;i<NUM_FRAMES;i++){
+                T band_1 = 0;
+                for(std::size_t j=10;j<=22;j++){
+                    band_1 = band_1 + input[i][j]*input[i][j];
+                }
+                T band_2 = 0;
+                for(std::size_t j=26;j<=32;j++){
+                    band_2 = band_2 + input[i][j]*input[i][j];
+                }
+                if(band_1 == 0) ber[i][0] = 0;
+                else ber[i][0] = band_2/band_1;
+            }
+            input.reset_shape();
+            return mean(ber);
         }
-        T band_2 = 0;
-        for(std::size_t j=26;j<=32;j++){
-            band_2 = band_2 + input[i][j]*input[i][j];
-        }
-        if(band_1 == 0) ber[i][0] = 0;
-        else ber[i][0] = band_2/band_1;
-    }
-    input.reset_shape();
-    return mean(ber);
-}
+};
 
+// Zoom STFT Class
+template <class T, std::size_t N, std::size_t Input_row, std::size_t Input_col, std::size_t Output_row, std::size_t Output_col>
+class zoom_stft{
+    public:
+        Matrix<T,Output_row,Output_col> output;
+        // Zoom Function
+        Matrix<T,Output_row,Output_col> zoom(Matrix<T,N,1> &input){
+            input.reshape(Input_row,Input_col);
+            T row_scale = static_cast<T>(Input_row-1) / (Output_row-1);
+            T col_scale = static_cast<T>(Input_col-1) / (Output_col-1);
+            for(std::size_t i=0;i<Output_row;i++){
+                for(std::size_t j=0;j<Output_col;j++){
+                    std::size_t r0 = i*row_scale;
+                    T wr = r0 - std::floor(r0);
+                    r0 = std::floor(r0); // Floor Row
+                    std::size_t r1 = r0 + 1;// Ceil Row
+                    if(r1 >= Input_row) r1 = Input_row-1;
+
+                    std::size_t c0 = j*col_scale;
+                    T wc = c0 - std::floor(c0);
+                    c0 = std::floor(c0);// Floor Col
+                    std::size_t c1 = c0 + 1;// Ceil Col
+                    if(c1 >= Input_col) c1 = Input_col-1;
+
+                    output[i][j] = (1-wr)*(1-wc)*input[r0][c0] + (1-wr)*wc*input[r0][c1] + wr*(1-wc)*input[r1][c0] + wr*wc*input[r1][c1];
+
+                }
+            }
+            input.reset_shape();
+            return output;
+        }
+};
 #endif
