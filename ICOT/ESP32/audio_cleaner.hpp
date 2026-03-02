@@ -8,11 +8,11 @@
 // To hilight sudden changes in the signal
 template <class T,std::size_t N>
 void apply_pre_emphasis(Matrix<T,N,1> &input, T coeff){
-    T buffer = input[0];
+    T buffer = input[0][0];
     T temp = 0;
     for(std::size_t i=1;i<N;i++){
-        temp = input[i];
-        input[i] = input[i] - coeff * buffer;
+        temp = input[i][0];
+        input[i][0] = input[i][0] - coeff * buffer;
         buffer = temp;
     }
 }

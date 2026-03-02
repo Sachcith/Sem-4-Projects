@@ -12,7 +12,7 @@ class stft{
         // Constants
         static constexpr std::size_t NUM_FRAMES = 1 + (TOTAL_SAMPLES - FFT_SIZE) / HOP_SIZE;
         static constexpr std::size_t NUM_BINS = FFT_SIZE/2 + 1;
-        static constexpr std::size_t FINAL = (NUM_FRAMES+1)*NUM_BINS;
+        static constexpr std::size_t FINAL = max((NUM_FRAMES+1)*NUM_BINS,TOTAL_SAMPLES);
         //Matrix<T,FINAL,1> signal;
         Matrix<T,NUM_BINS,1> buffer1;
         Matrix<T,NUM_BINS,1> buffer2;
@@ -26,7 +26,7 @@ class stft{
         //void setSignal(Matrix<T,TOTAL_SAMPLES,1>input);
         
         // Compute STFT Function
-        Matrix<T,FINAL,1> compute(Matrix<T,FINAL,1> &signal){
+        void compute(Matrix<T,FINAL,1> &signal){
             //Matrix<T,NUM_FRAMES,NUM_BINS> output;
 
             float in[FFT_SIZE];
@@ -78,7 +78,6 @@ class stft{
 
             fftwf_destroy_plan(plan);
 
-            return signal;
         }
 };
 
@@ -189,10 +188,11 @@ class BER{
 template <class T, std::size_t N, std::size_t Input_row, std::size_t Input_col, std::size_t Output_row, std::size_t Output_col>
 class zoom_stft{
     public:
-        Matrix<T,Output_row,Output_col> output;
+        Matrix<T,Output_row*Output_col,1> output;
         // Zoom Function
-        Matrix<T,Output_row,Output_col> zoom(Matrix<T,N,1> &input){
+        Matrix<T,Output_row*Output_col,1> zoom(Matrix<T,N,1> &input){
             input.reshape(Input_row,Input_col);
+            output.reshape(Output_row,Output_col);
             T row_scale = static_cast<T>(Input_row-1) / (Output_row-1);
             T col_scale = static_cast<T>(Input_col-1) / (Output_col-1);
             for(std::size_t i=0;i<Output_row;i++){
@@ -214,6 +214,7 @@ class zoom_stft{
                 }
             }
             input.reset_shape();
+            output.reset_shape();
             return output;
         }
 };

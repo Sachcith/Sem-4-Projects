@@ -144,6 +144,36 @@ T RMS(Matrix<T,N,1> &input){
     return std::sqrt(total/N);
 }
 
+// Spectral Centroid
+// Centroid Calculator thingy
+template <class T, std::size_t N, std::size_t NUM_FRAMES, std::size_t NUM_BINS>
+class spectral_centroid{
+    private:
+        Matrix<T,NUM_FRAMES,1> output;
+    public:
+        Matrix<T,2,1> compute(Matrix<T,N,1> &input,std::size_t sample_rate){
+            input.reshape(NUM_FRAMES,NUM_BINS);
+            std::size_t FFT_SIZE = (NUM_BINS-1)*2;
+            for(std::size_t i=0;i<NUM_FRAMES;i++){
+                T mag_total = 0;
+                output[i][0] = 0;
+                for(std::size_t j=0;j<NUM_BINS;j++){
+                    T fi = j;
+                    output[i][0] = output[i][0] + input[i][j]*fi;
+                    mag_total = mag_total + input[i][j];
+                }
+                if(mag_total==0) output[i][0] = 0;
+                else output[i][0] = output[i][0]/mag_total;
+            }
+
+            input.reset_shape();
+            Matrix<T,2,1> actual_output;
+            actual_output[0][0] = mean(output);
+            actual_output[1][0] = standard_deviation(output,actual_output[0][0]);
+            return actual_output;
+        }
+};
+
 // Spectral Bandwidth Function
 template <class T, std::size_t N, std::size_t NUM_FRAMES, std::size_t NUM_BINS>
 class spectral_bandwidth{
@@ -171,13 +201,13 @@ class spectral_bandwidth{
                     mag_sum = mag_sum + input[i][j];
                     square = square + (j-centroid[i][0])*(j-centroid[i][0])*input[i][j];
                 }
-                if(mag_sum==0) bandwidth = 0;
-                else bandwidth = std::sqrt(square/mag_sum);
+                if(mag_sum==0) bandwidth[i][0] = 0;
+                else bandwidth[i][0] = std::sqrt(square/mag_sum);
             }
             input.reset_shape();
             Matrix<T,2,1> output;
             output[0][0] = mean(bandwidth);
-            output[1][0] = standard_deviation(bandwidth);
+            output[1][0] = standard_deviation(bandwidth,output[0][0]);
             return output;
         }
 };
@@ -229,7 +259,7 @@ class spectral_rolloff{
             input.reset_shape();
             Matrix<T,2,1> output;
             output[0][0] = mean(rolloff);
-            output[0][1] = standard_deviation(rolloff);
+            output[0][1] = standard_deviation(rolloff,output[0][0]);
             return output;
         }
 };
@@ -241,7 +271,7 @@ class spectral_flatness{
         Matrix<T,NUM_FRAMES,1> flatness;
 
     public:
-        Matrix<T,2,1> compute(Matrix<T,N,1> &input,T percentile){
+        Matrix<T,2,1> compute(Matrix<T,N,1> &input){
             input.reshape(NUM_FRAMES,NUM_BINS);
             for(std::size_t i=0;i<NUM_FRAMES;i++){
                 T mag_sum = 0;
@@ -256,7 +286,7 @@ class spectral_flatness{
             input.reset_shape();
             Matrix<T,2,1> output;
             output[0][0] = mean(flatness);
-            output[0][1] = standard_deviation(flatness);
+            output[0][1] = standard_deviation(flatness,output[0][0]);
             return output;
         }
 };
@@ -275,8 +305,8 @@ class spectral_contrast{
             T band_size = NUM_BINS/n_bands;
             for(std::size_t k=0;k<n_bands;k++){
                 for(std::size_t i=0;i<NUM_FRAMES;i++){
-                    T temp_max = input[i][k*band_size];
-                    T temp_min = input[i][k*band_size];
+                    T temp_max = input[i][static_cast<std::size_t>(k*band_size)];
+                    T temp_min = input[i][static_cast<std::size_t>(k*band_size)];
 
                     std::size_t end = (k+1)*band_size;
                     if(k==n_bands-1) end = NUM_BINS;
@@ -314,7 +344,6 @@ class frequency_band_energies{
                         count++;
                     }
                 }
-                temp.reset_shape();
                 FBE[k][0] = temp/count;
             }
             input.reset_shape();
@@ -339,16 +368,16 @@ class temporal_features{
                 frame_energy[i][0] = energy;
             }
             for(std::size_t i=1;i<NUM_FRAMES;i++){
-                onset_strength[i-1][0] = max(0,frame_energy[i]-frame_energy[i-1]);
+                onset_strength[i-1][0] = max(static_cast<T>(0),frame_energy[i][0]-frame_energy[i-1][0]);
             }
             input.reset_shape();
             Matrix<T,5,1> temporal;
             temporal[0][0] = mean(frame_energy);
-            temporal[1][0] = standard_deviation(frame_energy);
+            temporal[1][0] = standard_deviation(frame_energy,temporal[0][0]);
             temporal[2][0] = max_value(frame_energy);
             if(NUM_FRAMES-1>0){
                 temporal[3][0] = mean(onset_strength);
-                temporal[4][0] = standard_deviation(onset_strength);
+                temporal[4][0] = standard_deviation(onset_strength,temporal[3][0]);
             }
             else{
                 temporal[3][0] = 0;
@@ -373,7 +402,7 @@ class spectral_entropy_feature{
             T entropy = 0;
             for(std::size_t i=0;i<NUM_FRAMES;i++){
                 for(std::size_t j=0;j<NUM_BINS;j++){
-                    entropy = entropy - (input[i][j]/total_sum)*std::log(input[i][j]/total_sum);
+                    entropy = entropy - (input[i][j]/total_sum)*std::log(input[i][j]/total_sum + 1e-5);
                 }
             }
             input.reset_shape();
@@ -422,6 +451,11 @@ class MFCC{
             }
 
             Matrix<T,13,NUM_BINS> H;
+            for(std::size_t i=0;i<13;i++){
+                for(std::size_t j=0;j<NUM_BINS;j++){
+                    H[i][j] = 0;
+                }
+            }
             std::size_t index = 0;
 
             Matrix<std::size_t, 13+2, 1> bin;
@@ -479,8 +513,40 @@ class MFCC{
             
             Matrix<T,2,1> output;
             output[0][0] = mean(mfcc);
-            output[1][0] = standard_deviation(mfcc);
+            output[1][0] = standard_deviation(mfcc,output[0][0]);
             return output;
         }
 };
+
+template <class T, std::size_t N>
+void normalize_mean_std(Matrix<T,N,1> &input, T mean_value, T standard_dev){
+    for(std::size_t i=0;i<N;i++){
+        input[i][0] = (input[i][0] - mean_value)/standard_dev;
+    }
+}
+
+template <class T, std::size_t N>
+void clip(Matrix<T,N,1> &input, T min_val, T max_val){
+    for(std::size_t i=0;i<N;i++){
+        input[i][0] = min(max_val,max(min_val,input[i][0]));
+    }
+}
+
+template <class T>
+T abs_error(T &input){
+    return std::abs(input) + 1e-5;
+}
+
+template <class T, std::size_t N>
+void nan_inf_values(Matrix<T,N,1> &input){
+    for(std::size_t i=0;i<N;i++){
+        if(std::isnan(input[i][0])){
+            input[i][0] = 0;
+        }
+        else if(std::isinf(input[i][0])){
+            if(input[i][0]>0) input[i][0] = 1;
+            else input[i][0] = -1;
+        }
+    }
+}
 #endif
