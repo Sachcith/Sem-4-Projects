@@ -1,0 +1,40 @@
+Ok Mean
+Ok Standard Deviation
+Ok max_value
+Ok min_value
+Ok percentile
+Ok skewness
+Ok Kurtosis (with -3 bruh) (so it is correct)
+Ok zcr
+Ok RMS
+Ok Normalize RMS
+Ok Spectral Centroid
+Ok Spectral Bandwidth +ve only (dont give -ve to this class)
+Ok Spectral Rolloff +ve only (dont give -ve to this class)
+Ok Spectral Flatness +ve only (dont give -ve to this class)
+Ok Spectral Constrast
+Ok Frequency Band Energy
+Ok Temporal Features
+Ok Statistical Moments
+Ok Spectral Entropy Feature Ove only (dont give -ve to this class)
+Ok Spectral Crest Factor
+Ok Normalize Mean Std
+Ok Clip
+Ok STFT Compute
+Ok STFT Log thingy
+Ok STFT Zoom
+Ok STFT Centroid thingy not used anywhere so not tested
+Ok STFT BER thingy not used anywhere so not tested
+Ok DWT Compute
+Ok Abs error
+Not fully okay but fine DWT ZOOM
+Ok MFCC
+
+
+
+Pending:
+    Feature.hpp
+        Nan thingys
+    Audio_cleaning.hpp
+        Butterworth Band Pass Filter
+    

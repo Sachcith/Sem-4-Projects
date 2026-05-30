@@ -1,0 +1,86 @@
+============================================================
+Extracted Features (70 total: 35 STFT + 35 DWT)
+Audio file: /home/sachcith/Documents/Sem 4/IOT/Project/input.wav
+============================================================
+
+----------------------------------------
+STFT Features (35)
+----------------------------------------
+  STFT_Mean                                = -0.00000002
+  STFT_Std                                 = 1.00000000
+  STFT_Max                                 = 3.72582150
+  STFT_Min                                 = -0.45293841
+  STFT_Percentile_25                       = -0.45293841
+  STFT_Percentile_75                       = -0.45293841
+  STFT_Spectral_Centroid_Mean              = 42.97164154
+  STFT_Spectral_Centroid_Std               = 2.01642418
+  STFT_Spectral_Bandwidth_Mean             = 39.43062592
+  STFT_Spectral_Bandwidth_Std              = 1.20251203
+  STFT_Spectral_Rolloff_Mean               = 96.44000244
+  STFT_Spectral_Rolloff_Std                = 5.13287449
+  STFT_Spectral_Flatness_Mean              = 0.76103801
+  STFT_Spectral_Flatness_Std               = 0.04751027
+  STFT_Spectral_Contrast_B1                = 3.27923226
+  STFT_Spectral_Contrast_B2                = 0.01839912
+  STFT_Spectral_Contrast_B3                = 0.00665537
+  STFT_Spectral_Contrast_B4                = 0.00103357
+  STFT_Zero_Crossing_Rate                  = 0.12519930
+  STFT_Freq_Band_Energy_1                  = 4.29011011
+  STFT_Freq_Band_Energy_2                  = 0.19982156
+  STFT_Freq_Band_Energy_3                  = 0.19994217
+  STFT_Freq_Band_Energy_4                  = 0.20242451
+  STFT_Freq_Band_Energy_5                  = 0.20330487
+  STFT_Temporal_Energy_Mean                = 128.00012207
+  STFT_Temporal_Energy_Std                 = 8.01387215
+  STFT_Temporal_Energy_Max                 = 148.51502991
+  STFT_Onset_Strength_Mean                 = 2.28006911
+  STFT_Onset_Strength_Std                  = 3.34763050
+  STFT_Skewness                            = 2.03674030
+  STFT_Kurtosis                            = 2.60263872
+  STFT_MFCC_Mean                           = 1.20466745
+  STFT_MFCC_Std                            = 2.77566457
+  STFT_Spectral_Entropy                    = 9.13432503
+  STFT_Crest_Factor                        = 5.18488741
+
+----------------------------------------
+DWT Features (35)
+----------------------------------------
+  DWT_Mean                                 = -74.67220306
+  DWT_Std                                  = 12.54147625
+  DWT_Max                                  = -7.98993635
+  DWT_Min                                  = -80.00000000
+  DWT_Percentile_25                        = -80.00000000
+  DWT_Percentile_75                        = -79.37005615
+  DWT_Spectral_Centroid_Mean               = 62.84142685
+  DWT_Spectral_Centroid_Std                = 3.41493773
+  DWT_Spectral_Bandwidth_Mean              = 37.22352600
+  DWT_Spectral_Bandwidth_Std               = 1.17724025
+  DWT_Spectral_Rolloff_Mean                = 108.47000122
+  DWT_Spectral_Rolloff_Std                 = 2.34288287
+  DWT_Spectral_Flatness_Mean               = 0.98772806
+  DWT_Spectral_Flatness_Std                = 0.02736351
+  DWT_Spectral_Contrast_B1                 = 1.60058832
+  DWT_Spectral_Contrast_B2                 = 3.97625875
+  DWT_Spectral_Contrast_B3                 = 9.57271004
+  DWT_Spectral_Contrast_B4                 = 11.64843178
+  DWT_Zero_Crossing_Rate                   = 0.19260204
+  DWT_Freq_Band_Energy_1                   = 1000.00000000
+  DWT_Freq_Band_Energy_2                   = 1000.00000000
+  DWT_Freq_Band_Energy_3                   = 1000.00000000
+  DWT_Freq_Band_Energy_4                   = 1000.00000000
+  DWT_Freq_Band_Energy_5                   = 1000.00000000
+  DWT_Temporal_Energy_Mean                 = 1000.00000000
+  DWT_Temporal_Energy_Std                  = 1000.00000000
+  DWT_Temporal_Energy_Max                  = 1000.00000000
+  DWT_Onset_Strength_Mean                  = 1000.00000000
+  DWT_Onset_Strength_Std                   = 1000.00000000
+  DWT_Skewness                             = 2.70053577
+  DWT_Kurtosis                             = 6.81881905
+  DWT_MFCC_Mean                            = -66.93540192
+  DWT_MFCC_Std                             = 227.96630859
+  DWT_Spectral_Entropy                     = 9.43981838
+  DWT_Crest_Factor                         = 1.07134914
+
+============================================================
+Raw feature vector (comma-separated):
+-0.00000002,1.00000000,3.72582150,-0.45293841,-0.45293841,-0.45293841,42.97164154,2.01642418,39.43062592,1.20251203,96.44000244,5.13287449,0.76103801,0.04751027,3.27923226,0.01839912,0.00665537,0.00103357,0.12519930,4.29011011,0.19982156,0.19994217,0.20242451,0.20330487,128.00012207,8.01387215,148.51502991,2.28006911,3.34763050,2.03674030,2.60263872,1.20466745,2.77566457,9.13432503,5.18488741,-74.67220306,12.54147625,-7.98993635,-80.00000000,-80.00000000,-79.37005615,62.84142685,3.41493773,37.22352600,1.17724025,108.47000122,2.34288287,0.98772806,0.02736351,1.60058832,3.97625875,9.57271004,11.64843178,0.19260204,1000.00000000,1000.00000000,1000.00000000,1000.00000000,1000.00000000,1000.00000000,1000.00000000,1000.00000000,1000.00000000,1000.00000000,2.70053577,6.81881905,-66.93540192,227.96630859,9.43981838,1.07134914
